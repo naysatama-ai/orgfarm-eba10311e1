@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types>
+        <members>Contact-Contact Layout</members>
+        <members>Contact-Contact (Marketing) Layout</members>
+        <members>Contact-Contact (Support) Layout</members>
+        <members>Contact-Contact (Sales) Layout</members>
+        <name>Layout</name>
+    </types>
+    <version>57.0</version>
+</Package>
