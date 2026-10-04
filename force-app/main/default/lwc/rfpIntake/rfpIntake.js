@@ -1,23 +1,25 @@
 import { LightningElement, api } from "lwc";
+import { NavigationMixin } from "lightning/navigation";
 import { loadScript } from "lightning/platformResourceLoader";
 import { ShowToastEvent } from "lightning/platformShowToastEvent";
-import { notifyRecordUpdateAvailable } from "lightning/uiRecordApi";
 import PARSERS from "@salesforce/resourceUrl/rfpParsers";
 import extract from "@salesforce/apex/RfpIntakeController.extract";
-import applyValues from "@salesforce/apex/RfpIntakeController.applyValues";
+import createOpportunity from "@salesforce/apex/RfpIntakeController.createOpportunity";
 
 const TEXT_EXTENSIONS = ["txt", "eml", "md", "csv", "tsv", "json", "html", "htm"];
 const SHEET_EXTENSIONS = ["xlsx", "xls", "xlsm", "ods"];
 const MAX_ATTACH_BYTES = 2.5 * 1024 * 1024;
+const CORE_FIELDS = ["Name", "AccountId", "StageName", "CloseDate", "Amount"];
 
 const CONFIDENCE = {
     high: { label: "High confidence", badge: "badge badge_high", row: "row row_high" },
     medium: { label: "Check this", badge: "badge badge_medium", row: "row row_medium" },
     low: { label: "Low confidence", badge: "badge badge_low", row: "row row_low" },
+    default: { label: "Default", badge: "badge badge_default", row: "row row_default" },
     none: { label: "Not in RFP", badge: "badge badge_none", row: "row row_none" }
 };
 
-export default class RfpIntake extends LightningElement {
+export default class RfpIntake extends NavigationMixin(LightningElement) {
     @api recordId;
 
     stage = "input";
@@ -32,10 +34,8 @@ export default class RfpIntake extends LightningElement {
     rows = [];
     warnings = [];
     advertiserName;
-    currentAmount;
-    updateAmount = true;
+    createAccount = false;
     attachFile = true;
-    lastAppliedCount = 0;
 
     pdfReady;
     sheetReady;
@@ -68,39 +68,60 @@ export default class RfpIntake extends LightningElement {
         return this.warnings.length > 0;
     }
 
+    get coreRows() {
+        return this.rows.filter((r) => CORE_FIELDS.includes(r.fieldApiName));
+    }
+
+    get detailRows() {
+        return this.rows.filter((r) => !CORE_FIELDS.includes(r.fieldApiName));
+    }
+
     get foundCount() {
-        return this.rows.filter((r) => r.confidence !== "none").length;
+        return this.detailRows.filter((r) => r.confidence !== "none").length;
     }
 
-    get selectedCount() {
-        return this.rows.filter((r) => r.include).length;
+    get detailCount() {
+        return this.detailRows.length;
     }
 
-    get applyLabel() {
-        const n = this.selectedCount;
-        return n === 1 ? "Apply 1 field" : `Apply ${n} fields`;
+    get accountRow() {
+        return this.rows.find((r) => r.fieldApiName === "AccountId");
     }
 
-    get applyDisabled() {
-        return this.selectedCount === 0;
+    get showCreateAccount() {
+        const row = this.accountRow;
+        return !!(row && !row.value && this.advertiserName);
+    }
+
+    get createAccountLabel() {
+        return `Create a new account named "${this.advertiserName}"`;
+    }
+
+    get missingRequired() {
+        return this.rows.some((r) => r.required && !r.value);
+    }
+
+    get missingAccount() {
+        const row = this.accountRow;
+        return !!row && !row.value && !(this.showCreateAccount && this.createAccount);
+    }
+
+    get createDisabled() {
+        return this.missingRequired || this.missingAccount;
+    }
+
+    get createHint() {
+        if (this.missingRequired) {
+            return "Fill in the name, stage, and close date to continue.";
+        }
+        if (this.missingAccount) {
+            return "Pick an account, or create one for the advertiser.";
+        }
+        return "";
     }
 
     get sourceLabel() {
         return this.fileName || "Pasted text";
-    }
-
-    get budgetRow() {
-        return this.rows.find((r) => r.fieldApiName === "Gross_Budget__c");
-    }
-
-    get showAmountOption() {
-        const row = this.budgetRow;
-        return !!(row && row.include && row.value);
-    }
-
-    get amountOptionLabel() {
-        const current = this.currentAmount ? this.formatCurrency(this.currentAmount) : "empty";
-        return `Also set Opportunity Amount to the gross budget (currently ${current})`;
     }
 
     get canAttach() {
@@ -108,15 +129,7 @@ export default class RfpIntake extends LightningElement {
     }
 
     get attachLabel() {
-        return `Attach ${this.fileName} to this opportunity`;
-    }
-
-    get hasApplied() {
-        return this.lastAppliedCount > 0;
-    }
-
-    get appliedMessage() {
-        return `${this.lastAppliedCount} fields were saved from the last RFP. Drop another to update them.`;
+        return `Attach ${this.fileName} to the new opportunity`;
     }
 
     handleDragOver(event) {
@@ -184,14 +197,13 @@ export default class RfpIntake extends LightningElement {
             return;
         }
         this.stage = "reading";
-        this.statusText = "Einstein is pulling out budget, flight dates, audience, and channels…";
+        this.statusText = "Einstein is pulling out the advertiser, budget, flight dates, audience, and channels…";
         try {
-            const result = await extract({ opportunityId: this.recordId, documentText: text });
+            const result = await extract({ contextRecordId: this.recordId, documentText: text });
             this.advertiserName = result.advertiserName;
-            this.currentAmount = result.currentAmount;
             this.warnings = result.warnings || [];
             this.rows = (result.fields || []).map((f) => this.toRow(f));
-            this.updateAmount = true;
+            this.createAccount = this.showCreateAccount;
             this.attachFile = this.canAttach;
             this.stage = "review";
         } catch (e) {
@@ -251,7 +263,7 @@ export default class RfpIntake extends LightningElement {
         const row = {
             ...f,
             confidence,
-            include: !!f.value && confidence !== "none",
+            include: f.required || (!!f.value && confidence !== "none"),
             badgeLabel: CONFIDENCE[confidence].label,
             badgeClass: CONFIDENCE[confidence].badge,
             isDate: f.dataType === "date",
@@ -262,8 +274,7 @@ export default class RfpIntake extends LightningElement {
             isPicklist: f.dataType === "picklist",
             isMulti: f.dataType === "multipicklist",
             isLookup: f.dataType === "lookup",
-            currentDisplay: this.formatCurrent(f),
-            hasEvidence: !!f.evidence && confidence !== "none"
+            hasEvidence: !!f.evidence && confidence !== "none" && confidence !== "default"
         };
         return this.decorate(row);
     }
@@ -284,37 +295,31 @@ export default class RfpIntake extends LightningElement {
     }
 
     updateRow(fieldApiName, changes) {
-        this.rows = this.rows.map((r) => (r.fieldApiName === fieldApiName ? this.decorate({ ...r, ...changes }) : r));
-    }
-
-    handleIncludeChange(event) {
-        this.updateRow(event.target.dataset.field, { include: event.target.checked });
-    }
-
-    handleValueChange(event) {
-        const value = event.detail.value;
-        this.updateRow(event.target.dataset.field, {
-            value: value === "" || value === undefined ? null : String(value),
-            include: value !== "" && value !== null && value !== undefined
+        const before = this.rows.find((r) => r.fieldApiName === fieldApiName);
+        const include = changes.include === undefined ? before.include : changes.include;
+        this.rows = this.rows.map((r) => {
+            if (r.fieldApiName === fieldApiName) {
+                return this.decorate({ ...r, ...changes, include: r.required || include });
+            }
+            if (
+                fieldApiName === "Gross_Budget__c" &&
+                r.fieldApiName === "Amount" &&
+                "value" in changes &&
+                r.value === before.value
+            ) {
+                return this.decorate({ ...r, value: changes.value, include: !!changes.value });
+            }
+            return r;
         });
     }
 
-    handleAgencyChange(event) {
-        const recordId = event.detail.recordId;
-        this.updateRow(event.target.dataset.field, { value: recordId || null, include: !!recordId });
+    handleRowChange(event) {
+        const { fieldApiName, ...changes } = event.detail;
+        this.updateRow(fieldApiName, changes);
     }
 
-    handleChipClick(event) {
-        const { field, value } = event.currentTarget.dataset;
-        const row = this.rows.find((r) => r.fieldApiName === field);
-        const selected = row.value ? row.value.split(";") : [];
-        const next = selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value];
-        const ordered = row.options.map((o) => o.value).filter((v) => next.includes(v));
-        this.updateRow(field, { value: ordered.length ? ordered.join(";") : null, include: ordered.length > 0 });
-    }
-
-    handleUpdateAmountChange(event) {
-        this.updateAmount = event.target.checked;
+    handleCreateAccountChange(event) {
+        this.createAccount = event.target.checked;
     }
 
     handleAttachChange(event) {
@@ -325,36 +330,36 @@ export default class RfpIntake extends LightningElement {
         this.reset();
     }
 
-    async handleApply() {
+    async handleCreate() {
         const fieldValues = {};
         this.rows
-            .filter((r) => r.include)
+            .filter((r) => r.include && r.value)
             .forEach((r) => {
-                fieldValues[r.fieldApiName] = r.value || "";
+                fieldValues[r.fieldApiName] = r.value;
             });
-        const count = Object.keys(fieldValues).length;
 
         this.stage = "reading";
-        this.statusText = "Saving to the opportunity…";
+        this.statusText = "Creating the opportunity…";
         try {
             const attach = this.attachFile && this.canAttach;
-            await applyValues({
-                opportunityId: this.recordId,
+            const newId = await createOpportunity({
                 fieldValues,
-                updateAmount: this.showAmountOption && this.updateAmount,
+                newAccountName: this.showCreateAccount && this.createAccount ? this.advertiserName : null,
                 fileName: attach ? this.fileName : null,
                 fileBase64: attach ? await this.toBase64(this.file) : null
             });
-            await notifyRecordUpdateAvailable([{ recordId: this.recordId }]);
             this.dispatchEvent(
                 new ShowToastEvent({
-                    title: "RFP applied",
-                    message: `${count} fields were saved to this opportunity.`,
+                    title: "Opportunity created",
+                    message: `"${fieldValues.Name}" was created from the RFP.`,
                     variant: "success"
                 })
             );
             this.reset();
-            this.lastAppliedCount = count;
+            this[NavigationMixin.Navigate]({
+                type: "standard__recordPage",
+                attributes: { recordId: newId, objectApiName: "Opportunity", actionName: "view" }
+            });
         } catch (e) {
             this.stage = "review";
             this.error = this.reduceError(e);
@@ -367,6 +372,7 @@ export default class RfpIntake extends LightningElement {
         this.warnings = [];
         this.file = undefined;
         this.fileName = undefined;
+        this.advertiserName = undefined;
         this.pastedText = "";
         this.showPaste = false;
         this.error = undefined;
@@ -386,41 +392,12 @@ export default class RfpIntake extends LightningElement {
         });
     }
 
-    formatCurrent(f) {
-        const v = f.currentValue;
-        if (v === null || v === undefined || v === "") {
-            return "Currently empty";
-        }
-        let display = v;
-        if (f.dataType === "currency") {
-            display = this.formatCurrency(v);
-        } else if (f.dataType === "number") {
-            display = new Intl.NumberFormat("en-US").format(Number(v));
-        } else if (f.dataType === "date") {
-            display = new Date(v + "T00:00:00").toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric"
-            });
-        } else if (f.dataType === "multipicklist") {
-            display = v.split(";").join(", ");
-        } else if (v.length > 80) {
-            display = v.substring(0, 80) + "…";
-        }
-        return `Currently: ${display}`;
-    }
-
-    formatCurrency(value) {
-        return new Intl.NumberFormat("en-US", {
-            style: "currency",
-            currency: "USD",
-            maximumFractionDigits: 2
-        }).format(Number(value) || 0);
-    }
-
     reduceError(error) {
         if (error && error.body && error.body.message) {
             return error.body.message;
+        }
+        if (error && error.body && error.body.pageErrors && error.body.pageErrors.length) {
+            return error.body.pageErrors[0].message;
         }
         if (error && error.message) {
             return error.message;

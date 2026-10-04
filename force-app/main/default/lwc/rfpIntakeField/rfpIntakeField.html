@@ -1,0 +1,113 @@
+<template>
+    <div class={row.rowClass}>
+        <div class="row-head">
+            <lightning-input
+                type="checkbox"
+                label={row.label}
+                checked={row.include}
+                disabled={includeDisabled}
+                onchange={handleIncludeChange}
+            >
+            </lightning-input>
+            <span class={row.badgeClass}>{row.badgeLabel}</span>
+        </div>
+
+        <div class="row-input">
+            <template if:true={row.isDate}>
+                <lightning-input
+                    type="date"
+                    label={row.label}
+                    variant="label-hidden"
+                    value={row.value}
+                    required={row.required}
+                    onchange={handleValueChange}
+                >
+                </lightning-input>
+            </template>
+            <template if:true={row.isCurrency}>
+                <lightning-input
+                    type="number"
+                    formatter="currency"
+                    step="0.01"
+                    label={row.label}
+                    variant="label-hidden"
+                    value={row.value}
+                    onchange={handleValueChange}
+                >
+                </lightning-input>
+            </template>
+            <template if:true={row.isNumber}>
+                <lightning-input
+                    type="number"
+                    step="1"
+                    label={row.label}
+                    variant="label-hidden"
+                    value={row.value}
+                    onchange={handleValueChange}
+                >
+                </lightning-input>
+            </template>
+            <template if:true={row.isText}>
+                <lightning-input
+                    label={row.label}
+                    variant="label-hidden"
+                    value={row.value}
+                    required={row.required}
+                    onchange={handleValueChange}
+                >
+                </lightning-input>
+            </template>
+            <template if:true={row.isTextarea}>
+                <lightning-textarea
+                    label={row.label}
+                    variant="label-hidden"
+                    value={row.value}
+                    onchange={handleValueChange}
+                    class="summary-box"
+                >
+                </lightning-textarea>
+            </template>
+            <template if:true={row.isPicklist}>
+                <lightning-combobox
+                    label={row.label}
+                    variant="label-hidden"
+                    placeholder="Choose a value"
+                    value={row.value}
+                    options={row.options}
+                    required={row.required}
+                    onchange={handleValueChange}
+                >
+                </lightning-combobox>
+            </template>
+            <template if:true={row.isMulti}>
+                <div class="chips">
+                    <template for:each={row.chips} for:item="chip">
+                        <button key={chip.value} class={chip.className} data-value={chip.value} onclick={handleChipClick}>
+                            {chip.label}
+                        </button>
+                    </template>
+                </div>
+            </template>
+            <template if:true={row.isLookup}>
+                <lightning-record-picker
+                    label={row.label}
+                    variant="label-hidden"
+                    object-api-name="Account"
+                    placeholder="Search accounts…"
+                    value={row.value}
+                    onchange={handleLookupChange}
+                >
+                </lightning-record-picker>
+            </template>
+        </div>
+
+        <div class="row-meta">
+            <template if:true={row.hasEvidence}>
+                <p class="evidence">“{row.evidence}”</p>
+            </template>
+            <template if:true={row.note}>
+                <p class="note">{row.note}</p>
+            </template>
+        </div>
+    </div>
+</template>

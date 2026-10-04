@@ -72,4 +72,8 @@
     </fieldPermissions>
     <hasActivationRequired>false</hasActivationRequired>
     <label>RFP Intake</label>
+    <tabSettings>
+        <tab>RFP_Intake</tab>
+        <visibility>Visible</visibility>
+    </tabSettings>
 </PermissionSet>

@@ -11,25 +11,19 @@ if (!byName.containsKey('Mindshare')) {
 }
 upsert byName.values();
 
-Account volt = byName.get('Volt Energy Drinks');
-List<Opportunity> opps = [SELECT Id FROM Opportunity WHERE Name = 'Volt Energy - Q4 Holiday Audio' LIMIT 1];
-Opportunity opp = opps.isEmpty()
-    ? new Opportunity(Name = 'Volt Energy - Q4 Holiday Audio', AccountId = volt.Id, StageName = 'Qualification', CloseDate = Date.today().addDays(14))
-    : opps[0];
-opp.Amount = null;
-for (String field : new List<String>{
-    'Gross_Budget__c', 'Flight_Start_Date__c', 'Flight_End_Date__c', 'RFP_Due_Date__c', 'Primary_KPI__c',
-    'Target_Demo__c', 'Content_Categories__c', 'Channels__c', 'Impressions_Goal__c', 'Target_CPM__c',
-    'Agency__c', 'RFP_Summary__c', 'RFP_Processed_On__c'
-}) {
-    opp.put(field, null);
+List<Opportunity> demoOpps = [
+    SELECT Id
+    FROM Opportunity
+    WHERE AccountId = :byName.get('Volt Energy Drinks').Id
+        AND (RFP_Processed_On__c != NULL OR Name = 'Volt Energy - Q4 Holiday Audio')
+];
+Set<Id> oppIds = new Map<Id, Opportunity>(demoOpps).keySet();
+if (!oppIds.isEmpty()) {
+    Set<Id> docIds = new Set<Id>();
+    for (ContentDocumentLink l : [SELECT ContentDocumentId FROM ContentDocumentLink WHERE LinkedEntityId IN :oppIds]) {
+        docIds.add(l.ContentDocumentId);
+    }
+    delete [SELECT Id FROM ContentDocument WHERE Id IN :docIds];
+    delete demoOpps;
 }
-upsert opp;
-
-List<ContentDocumentLink> links = [SELECT ContentDocumentId FROM ContentDocumentLink WHERE LinkedEntityId = :opp.Id];
-Set<Id> docIds = new Set<Id>();
-for (ContentDocumentLink l : links) {
-    docIds.add(l.ContentDocumentId);
-}
-delete [SELECT Id FROM ContentDocument WHERE Id IN :docIds];
-System.debug('DEMO_OPP=' + opp.Id);
+System.debug('DEMO_READY removed ' + demoOpps.size() + ' demo opportunities');

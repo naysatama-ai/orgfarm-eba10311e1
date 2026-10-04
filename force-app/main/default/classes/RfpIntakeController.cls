@@ -2,6 +2,7 @@ public with sharing class RfpIntakeController {
     private static final String MODEL_NAME = 'sfdc_ai__DefaultGPT4Omni';
     private static final Integer MAX_DOCUMENT_CHARS = 60000;
     private static final Integer MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+    private static final Integer DEFAULT_CLOSE_DAYS = 30;
 
     @TestVisible
     private static String mockModelResponse;
@@ -32,6 +33,8 @@ public with sharing class RfpIntakeController {
         new FieldSpec('summary', 'RFP_Summary__c', '3-6 short bullet lines covering objectives, creative/format asks, restrictions, and deliverables')
     };
 
+    private static final Set<String> CORE_FIELDS = new Set<String>{ 'Name', 'AccountId', 'StageName', 'CloseDate', 'Amount' };
+
     public class Option {
         @AuraEnabled public String label;
         @AuraEnabled public String value;
@@ -47,28 +50,24 @@ public with sharing class RfpIntakeController {
         @AuraEnabled public String dataType;
         @AuraEnabled public String value;
         @AuraEnabled public String rawValue;
-        @AuraEnabled public String currentValue;
         @AuraEnabled public String confidence;
         @AuraEnabled public String evidence;
         @AuraEnabled public String note;
+        @AuraEnabled public Boolean required = false;
         @AuraEnabled public List<Option> options = new List<Option>();
     }
 
     public class ExtractionResult {
         @AuraEnabled public String advertiserName;
-        @AuraEnabled public String accountName;
-        @AuraEnabled public Decimal currentAmount;
         @AuraEnabled public List<FieldSuggestion> fields = new List<FieldSuggestion>();
         @AuraEnabled public List<String> warnings = new List<String>();
     }
 
     @AuraEnabled
-    public static ExtractionResult extract(Id opportunityId, String documentText) {
+    public static ExtractionResult extract(Id contextRecordId, String documentText) {
         if (String.isBlank(documentText)) {
             throw new AuraHandledException('The RFP has no readable text. Try pasting the text instead.');
         }
-        Opportunity opp = loadOpportunity(opportunityId);
-
         String text = documentText.length() > MAX_DOCUMENT_CHARS
             ? documentText.substring(0, MAX_DOCUMENT_CHARS)
             : documentText;
@@ -76,62 +75,72 @@ public with sharing class RfpIntakeController {
         Map<String, Object> parsed = parseModelJson(callModel(buildPrompt(text)));
 
         ExtractionResult result = new ExtractionResult();
-        result.accountName = opp.Account?.Name;
-        result.currentAmount = opp.Amount;
         if (documentText.length() > MAX_DOCUMENT_CHARS) {
             result.warnings.add('The RFP was long, so only the first ' + MAX_DOCUMENT_CHARS + ' characters were read.');
         }
+        Map<String, Object> advertiser = entryFor(parsed, 'advertiserName');
+        result.advertiserName = advertiser == null ? null : rawToString(advertiser.get('value'));
 
         Map<String, Schema.SObjectField> fieldMap = Schema.SObjectType.Opportunity.fields.getMap();
+        Map<String, FieldSuggestion> byField = new Map<String, FieldSuggestion>();
         for (FieldSpec spec : SPECS) {
             Schema.DescribeFieldResult describe = fieldMap.get(spec.fieldApiName).getDescribe();
-            if (!describe.isAccessible()) {
-                continue;
+            if (describe.isCreateable()) {
+                byField.put(spec.fieldApiName, buildSuggestion(spec.fieldApiName, describe, entryFor(parsed, spec.key)));
             }
-            result.fields.add(buildSuggestion(spec, describe, entryFor(parsed, spec.key), opp));
         }
 
-        Map<String, Object> advertiser = entryFor(parsed, 'advertiserName');
-        result.advertiserName = advertiser == null ? null : asString(advertiser.get('value'));
-        if (String.isNotBlank(result.advertiserName) && String.isNotBlank(result.accountName)
-                && !namesMatch(result.advertiserName, result.accountName)) {
-            result.warnings.add('The RFP is for "' + result.advertiserName + '", but this opportunity\'s account is "'
-                + result.accountName + '". Check that you are on the right opportunity.');
-        }
+        result.fields.add(nameSuggestion(fieldMap, entryFor(parsed, 'opportunityName'), result.advertiserName));
+        FieldSuggestion account = accountSuggestion(fieldMap, advertiser, contextRecordId, result);
+        result.fields.add(account);
+        result.fields.add(stageSuggestion(fieldMap));
+        result.fields.add(closeDateSuggestion(fieldMap, byField.get('Flight_Start_Date__c')));
+        result.fields.add(amountSuggestion(fieldMap, byField.get('Gross_Budget__c')));
+        result.fields.addAll(byField.values());
+
+        addDuplicateWarning(account.value, result);
         return result;
     }
 
     @AuraEnabled
-    public static void applyValues(
-        Id opportunityId,
+    public static Id createOpportunity(
         Map<String, String> fieldValues,
-        Boolean updateAmount,
+        String newAccountName,
         String fileName,
         String fileBase64
     ) {
         Map<String, Schema.SObjectField> fieldMap = Schema.SObjectType.Opportunity.fields.getMap();
-        Set<String> allowed = new Set<String>();
+        Set<String> allowed = new Set<String>(CORE_FIELDS);
         for (FieldSpec spec : SPECS) {
             allowed.add(spec.fieldApiName);
         }
 
-        Opportunity opp = new Opportunity(Id = opportunityId, RFP_Processed_On__c = System.now());
+        Opportunity opp = new Opportunity(RFP_Processed_On__c = System.now());
         for (String fieldName : fieldValues.keySet()) {
-            if (!allowed.contains(fieldName)) {
-                continue;
+            if (allowed.contains(fieldName)) {
+                Schema.DescribeFieldResult describe = fieldMap.get(fieldName).getDescribe();
+                opp.put(fieldName, toFieldValue(describe.getType(), fieldValues.get(fieldName)));
             }
-            Schema.DescribeFieldResult describe = fieldMap.get(fieldName).getDescribe();
-            opp.put(fieldName, toFieldValue(describe.getType(), fieldValues.get(fieldName)));
         }
-        if (updateAmount == true && opp.Gross_Budget__c != null) {
-            opp.Amount = opp.Gross_Budget__c;
+        if (String.isBlank(opp.Name) || String.isBlank(opp.StageName) || opp.CloseDate == null) {
+            throw new AuraHandledException('Opportunity name, stage, and close date are required.');
+        }
+
+        if (opp.AccountId == null && String.isNotBlank(newAccountName)) {
+            SObjectAccessDecision accountDecision = Security.stripInaccessible(
+                AccessType.CREATABLE,
+                new List<Account>{ new Account(Name = newAccountName.trim().left(255)) }
+            );
+            insert accountDecision.getRecords();
+            opp.AccountId = accountDecision.getRecords()[0].Id;
         }
 
         SObjectAccessDecision decision = Security.stripInaccessible(
-            AccessType.UPDATABLE,
+            AccessType.CREATABLE,
             new List<Opportunity>{ opp }
         );
-        update decision.getRecords();
+        insert decision.getRecords();
+        Id oppId = decision.getRecords()[0].Id;
 
         if (String.isNotBlank(fileBase64) && String.isNotBlank(fileName)) {
             Blob data = EncodingUtil.base64Decode(fileBase64);
@@ -140,23 +149,143 @@ public with sharing class RfpIntakeController {
                     Title = fileName,
                     PathOnClient = fileName,
                     VersionData = data,
-                    FirstPublishLocationId = opportunityId
+                    FirstPublishLocationId = oppId
                 );
             }
         }
+        return oppId;
     }
 
-    private static Opportunity loadOpportunity(Id opportunityId) {
-        return [
-            SELECT Id, Name, Amount, Account.Name,
-                Gross_Budget__c, Flight_Start_Date__c, Flight_End_Date__c, RFP_Due_Date__c,
-                Primary_KPI__c, Target_Demo__c, Content_Categories__c, Channels__c,
-                Impressions_Goal__c, Target_CPM__c, Agency__c, Agency__r.Name, RFP_Summary__c
+    private static FieldSuggestion coreSuggestion(Map<String, Schema.SObjectField> fieldMap, String fieldApiName) {
+        Schema.DescribeFieldResult describe = fieldMap.get(fieldApiName).getDescribe();
+        FieldSuggestion s = new FieldSuggestion();
+        s.fieldApiName = fieldApiName;
+        s.label = describe.getLabel();
+        s.dataType = dataTypeFor(describe.getType());
+        return s;
+    }
+
+    private static FieldSuggestion nameSuggestion(
+        Map<String, Schema.SObjectField> fieldMap,
+        Map<String, Object> entry,
+        String advertiserName
+    ) {
+        FieldSuggestion s = coreSuggestion(fieldMap, 'Name');
+        s.required = true;
+        s.value = entry == null ? null : rawToString(entry.get('value'));
+        if (String.isNotBlank(s.value)) {
+            s.value = s.value.left(120);
+            s.confidence = 'high';
+            s.evidence = asString(entry.get('evidence'));
+        } else {
+            s.value = (String.isNotBlank(advertiserName) ? advertiserName : 'New') + ' - RFP ' + String.valueOf(Date.today());
+            s.confidence = 'default';
+            s.note = 'The RFP has no campaign name, so this is a placeholder.';
+        }
+        return s;
+    }
+
+    private static FieldSuggestion accountSuggestion(
+        Map<String, Schema.SObjectField> fieldMap,
+        Map<String, Object> advertiser,
+        Id contextRecordId,
+        ExtractionResult result
+    ) {
+        FieldSuggestion s = coreSuggestion(fieldMap, 'AccountId');
+        s.label = 'Account (Advertiser)';
+        s.rawValue = result.advertiserName;
+        s.evidence = advertiser == null ? null : asString(advertiser.get('evidence'));
+
+        if (contextRecordId != null && contextRecordId.getSobjectType() == Account.SObjectType) {
+            Account context = [SELECT Id, Name FROM Account WHERE Id = :contextRecordId WITH SECURITY_ENFORCED LIMIT 1];
+            s.value = context.Id;
+            s.confidence = 'high';
+            s.note = 'Using the account you started from.';
+            if (String.isNotBlank(result.advertiserName) && !namesMatch(result.advertiserName, context.Name)) {
+                s.confidence = 'low';
+                result.warnings.add('The RFP is for "' + result.advertiserName + '", but you started from the account "'
+                    + context.Name + '". Change the account below if this RFP belongs elsewhere.');
+            }
+            return s;
+        }
+
+        if (String.isBlank(s.rawValue)) {
+            s.confidence = 'none';
+            s.note = 'The RFP does not name the advertiser. Pick the account.';
+            return s;
+        }
+        s.confidence = normalizeConfidence(advertiser == null ? null : asString(advertiser.get('confidence')));
+        matchAccount(s);
+        return s;
+    }
+
+    private static FieldSuggestion stageSuggestion(Map<String, Schema.SObjectField> fieldMap) {
+        FieldSuggestion s = coreSuggestion(fieldMap, 'StageName');
+        s.required = true;
+        s.confidence = 'default';
+        Schema.DescribeFieldResult describe = fieldMap.get('StageName').getDescribe();
+        for (Schema.PicklistEntry entry : describe.getPicklistValues()) {
+            if (!entry.isActive()) {
+                continue;
+            }
+            s.options.add(new Option(entry.getLabel(), entry.getValue()));
+            if (s.value == null || entry.isDefaultValue()) {
+                s.value = entry.getValue();
+            }
+        }
+        s.note = 'New RFPs start at the first stage.';
+        return s;
+    }
+
+    private static FieldSuggestion closeDateSuggestion(Map<String, Schema.SObjectField> fieldMap, FieldSuggestion flightStart) {
+        FieldSuggestion s = coreSuggestion(fieldMap, 'CloseDate');
+        s.required = true;
+        s.confidence = 'default';
+        if (flightStart != null && flightStart.value != null) {
+            s.value = flightStart.value;
+            s.note = 'Set to the flight start date. Change it to when you expect the deal to close.';
+        } else {
+            s.value = formatDate(Date.today().addDays(DEFAULT_CLOSE_DAYS));
+            s.note = 'No flight dates in the RFP, so this is ' + DEFAULT_CLOSE_DAYS + ' days from today.';
+        }
+        return s;
+    }
+
+    private static FieldSuggestion amountSuggestion(Map<String, Schema.SObjectField> fieldMap, FieldSuggestion budget) {
+        FieldSuggestion s = coreSuggestion(fieldMap, 'Amount');
+        if (budget != null && budget.value != null) {
+            s.value = budget.value;
+            s.confidence = budget.confidence;
+            s.evidence = budget.evidence;
+            s.note = 'Matches the gross budget.';
+        } else {
+            s.confidence = 'none';
+            s.note = 'No budget in the RFP.';
+        }
+        return s;
+    }
+
+    private static void addDuplicateWarning(String accountId, ExtractionResult result) {
+        if (String.isBlank(accountId)) {
+            return;
+        }
+        List<Opportunity> open = [
+            SELECT Name
             FROM Opportunity
-            WHERE Id = :opportunityId
+            WHERE AccountId = :accountId AND IsClosed = FALSE
             WITH SECURITY_ENFORCED
-            LIMIT 1
+            ORDER BY CreatedDate DESC
+            LIMIT 3
         ];
+        if (open.isEmpty()) {
+            return;
+        }
+        List<String> names = new List<String>();
+        for (Opportunity o : open) {
+            names.add('"' + o.Name + '"');
+        }
+        result.warnings.add('This account already has open opportunities: ' + String.join(names, ', ')
+            + '. Make sure this RFP is not a duplicate.');
     }
 
     private static String buildPrompt(String documentText) {
@@ -172,6 +301,7 @@ public with sharing class RfpIntakeController {
             keyLines.add(line);
         }
         keyLines.add('- advertiserName: the brand or company paying for the campaign');
+        keyLines.add('- opportunityName: "<Advertiser> - <campaign name or season and year>", max 80 chars, e.g. "Acme - Summer 2026 Podcast"');
 
         return 'You extract structured deal data from advertising RFPs and media briefs for an audio media seller.\n'
             + 'Today is ' + String.valueOf(Date.today()) + '. If a date has no year, use the next future occurrence.\n'
@@ -231,16 +361,14 @@ public with sharing class RfpIntakeController {
     }
 
     private static FieldSuggestion buildSuggestion(
-        FieldSpec spec,
+        String fieldApiName,
         Schema.DescribeFieldResult describe,
-        Map<String, Object> entry,
-        Opportunity opp
+        Map<String, Object> entry
     ) {
         FieldSuggestion s = new FieldSuggestion();
-        s.fieldApiName = spec.fieldApiName;
+        s.fieldApiName = fieldApiName;
         s.label = describe.getLabel();
         s.dataType = dataTypeFor(describe.getType());
-        s.currentValue = currentValueFor(opp, spec.fieldApiName);
         for (String label : picklistLabels(describe)) {
             s.options.add(new Option(label, label));
         }
@@ -271,7 +399,7 @@ public with sharing class RfpIntakeController {
                 s.value = matchOptions(raw, s.options);
             }
             when 'lookup' {
-                matchAgency(s);
+                matchAccount(s);
                 return s;
             }
             when 'textarea' {
@@ -291,7 +419,7 @@ public with sharing class RfpIntakeController {
         return s;
     }
 
-    private static void matchAgency(FieldSuggestion s) {
+    private static void matchAccount(FieldSuggestion s) {
         String name = s.rawValue.trim();
         String safeName = name.replace('%', '').replace('_', '\\_');
         String fullPattern = '%' + safeName + '%';
@@ -338,16 +466,8 @@ public with sharing class RfpIntakeController {
         }
     }
 
-    private static String currentValueFor(Opportunity opp, String fieldApiName) {
-        if (fieldApiName == 'Agency__c') {
-            return opp.Agency__r?.Name;
-        }
-        Object current = opp.get(fieldApiName);
-        if (current instanceof Date) {
-            Date d = (Date) current;
-            return Datetime.newInstanceGmt(d.year(), d.month(), d.day()).formatGmt('yyyy-MM-dd');
-        }
-        return current == null ? null : String.valueOf(current);
+    private static String formatDate(Date d) {
+        return Datetime.newInstanceGmt(d.year(), d.month(), d.day()).formatGmt('yyyy-MM-dd');
     }
 
     private static String dataTypeFor(Schema.DisplayType t) {
