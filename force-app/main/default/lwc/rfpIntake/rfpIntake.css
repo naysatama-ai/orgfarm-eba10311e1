@@ -1,0 +1,170 @@
+.dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 1.5rem 1rem;
+    border: 2px dashed #c9c9c9;
+    border-radius: 0.5rem;
+    background: #fafaf9;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.dropzone_active {
+    border-color: #0176d3;
+    background: #eef4ff;
+}
+
+.file-input {
+    display: none;
+}
+
+.paste-box {
+    --slds-c-textarea-sizing-min-height: 8rem;
+}
+
+.reading {
+    position: relative;
+    min-height: 7rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+.summary {
+    display: grid;
+    grid-template-columns: 2fr 2fr 1fr;
+    gap: 0.75rem;
+    background: #f3f2f2;
+    border-radius: 0.25rem;
+    padding: 0.75rem;
+}
+
+.rows {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+    gap: 0.5rem;
+}
+
+.row {
+    border: 1px solid #e5e5e5;
+    border-left-width: 4px;
+    border-radius: 0.25rem;
+    padding: 0.5rem 0.75rem;
+    background: #fff;
+}
+
+.row_high {
+    border-left-color: #2e844a;
+    background: #f3fbf5;
+}
+
+.row_medium {
+    border-left-color: #dd7a01;
+    background: #fef8ef;
+}
+
+.row_low {
+    border-left-color: #ba0517;
+    background: #fef1f1;
+}
+
+.row_none {
+    border-left-color: #c9c9c9;
+}
+
+.row_skipped {
+    opacity: 0.6;
+}
+
+.row-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+}
+
+.badge {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    border-radius: 1rem;
+    padding: 0.0625rem 0.5rem;
+    white-space: nowrap;
+}
+
+.badge_high {
+    color: #2e844a;
+    background: #cdefc4;
+}
+
+.badge_medium {
+    color: #8c4b02;
+    background: #fedfb4;
+}
+
+.badge_low {
+    color: #ba0517;
+    background: #fed1d1;
+}
+
+.badge_none {
+    color: #5c5c5c;
+    background: #ecebea;
+}
+
+.row-meta {
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+}
+
+.evidence {
+    color: #444;
+    font-style: italic;
+}
+
+.note {
+    color: #8c4b02;
+}
+
+.current {
+    color: #706e6b;
+}
+
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.chip {
+    border: 1px solid #c9c9c9;
+    border-radius: 1rem;
+    background: #fff;
+    padding: 0.125rem 0.625rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.chip_on {
+    border-color: #0176d3;
+    background: #0176d3;
+    color: #fff;
+}
+
+.summary-box {
+    --slds-c-textarea-sizing-min-height: 7rem;
+}
+
+.options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}

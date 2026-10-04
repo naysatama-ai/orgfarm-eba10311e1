@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Gross_Budget__c</fullName>
+    <description>Gross media budget stated in the agency RFP.</description>
+    <externalId>false</externalId>
+    <label>Gross Budget</label>
+    <precision>16</precision>
+    <required>false</required>
+    <scale>2</scale>
+    <type>Currency</type>
+</CustomField>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>RFP_Processed_On__c</fullName>
+    <description>When RFP Intake last applied extracted values to this opportunity.</description>
+    <externalId>false</externalId>
+    <label>RFP Processed On</label>
+    <required>false</required>
+    <type>DateTime</type>
+</CustomField>

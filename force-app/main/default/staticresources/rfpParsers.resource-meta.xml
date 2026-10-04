@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<StaticResource xmlns="http://soap.sforce.com/2006/04/metadata">
+    <cacheControl>Public</cacheControl>
+    <contentType>application/zip</contentType>
+    <description>pdf.js 3.11.174 (legacy build) and SheetJS 0.18.5 for reading RFP files in the browser.</description>
+</StaticResource>

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Content_Categories__c</fullName>
+    <description>Content genres the advertiser wants to run against.</description>
+    <externalId>false</externalId>
+    <label>Content Categories</label>
+    <required>false</required>
+    <type>MultiselectPicklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Sports</fullName>
+                <default>false</default>
+                <label>Sports</label>
+            </value>
+            <value>
+                <fullName>Comedy</fullName>
+                <default>false</default>
+                <label>Comedy</label>
+            </value>
+            <value>
+                <fullName>News</fullName>
+                <default>false</default>
+                <label>News</label>
+            </value>
+            <value>
+                <fullName>Music</fullName>
+                <default>false</default>
+                <label>Music</label>
+            </value>
+            <value>
+                <fullName>Talk</fullName>
+                <default>false</default>
+                <label>Talk</label>
+            </value>
+            <value>
+                <fullName>True Crime</fullName>
+                <default>false</default>
+                <label>True Crime</label>
+            </value>
+            <value>
+                <fullName>Business</fullName>
+                <default>false</default>
+                <label>Business</label>
+            </value>
+            <value>
+                <fullName>Lifestyle</fullName>
+                <default>false</default>
+                <label>Lifestyle</label>
+            </value>
+            <value>
+                <fullName>Kids and Family</fullName>
+                <default>false</default>
+                <label>Kids and Family</label>
+            </value>
+            <value>
+                <fullName>Spanish Language</fullName>
+                <default>false</default>
+                <label>Spanish Language</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+    <visibleLines>4</visibleLines>
+</CustomField>

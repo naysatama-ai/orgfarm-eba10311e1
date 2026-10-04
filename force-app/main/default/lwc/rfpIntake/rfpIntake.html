@@ -1,0 +1,255 @@
+<template>
+    <lightning-card title="RFP Intake" icon-name="standard:document_reference">
+        <div class="slds-p-horizontal_medium slds-p-bottom_medium">
+            <template if:true={error}>
+                <div class="slds-notify slds-notify_alert slds-alert_error slds-m-bottom_small" role="alert">
+                    <h2>{error}</h2>
+                </div>
+            </template>
+
+            <template if:true={isInput}>
+                <template if:true={hasApplied}>
+                    <p class="slds-text-body_small slds-text-color_success slds-m-bottom_small">{appliedMessage}</p>
+                </template>
+
+                <div
+                    class={dropzoneClass}
+                    ondragover={handleDragOver}
+                    ondragenter={handleDragOver}
+                    ondragleave={handleDragLeave}
+                    ondrop={handleDrop}
+                >
+                    <lightning-icon icon-name="utility:upload" size="small" class="slds-m-bottom_x-small">
+                    </lightning-icon>
+                    <p class="slds-text-heading_small">Drop the client RFP or brief here</p>
+                    <p class="slds-text-body_small slds-text-color_weak slds-m-bottom_small">
+                        PDF, Excel, CSV, or text. Einstein fills in the deal fields and you review before saving.
+                    </p>
+                    <lightning-button label="Browse files" icon-name="utility:search" onclick={handleBrowse}>
+                    </lightning-button>
+                    <input
+                        class="file-input"
+                        type="file"
+                        accept=".pdf,.xlsx,.xls,.xlsm,.ods,.csv,.tsv,.txt,.eml,.md"
+                        onchange={handleFileChange}
+                    />
+                </div>
+
+                <div class="slds-m-top_small">
+                    <lightning-button variant="base" label={pasteToggleLabel} onclick={togglePaste}></lightning-button>
+                </div>
+                <template if:true={showPaste}>
+                    <lightning-textarea
+                        label="RFP text"
+                        placeholder="Paste the agency email or brief…"
+                        value={pastedText}
+                        onchange={handlePasteChange}
+                        class="paste-box"
+                    >
+                    </lightning-textarea>
+                    <lightning-button
+                        variant="brand"
+                        label="Read pasted text"
+                        onclick={handleReadPasted}
+                        disabled={pasteDisabled}
+                        class="slds-m-top_x-small"
+                    >
+                    </lightning-button>
+                </template>
+            </template>
+
+            <template if:true={isReading}>
+                <div class="reading">
+                    <lightning-spinner alternative-text="Working" size="small" variant="brand"></lightning-spinner>
+                    <p class="slds-text-body_regular slds-m-top_large">{statusText}</p>
+                </div>
+            </template>
+
+            <template if:true={isReview}>
+                <div class="summary slds-m-bottom_small">
+                    <div>
+                        <p class="slds-text-title_caps">Source</p>
+                        <p class="slds-truncate" title={sourceLabel}>{sourceLabel}</p>
+                    </div>
+                    <div>
+                        <p class="slds-text-title_caps">Advertiser in RFP</p>
+                        <p>{advertiserName}</p>
+                    </div>
+                    <div>
+                        <p class="slds-text-title_caps">Found</p>
+                        <p>{foundCount} of {rows.length} fields</p>
+                    </div>
+                </div>
+
+                <template if:true={hasWarnings}>
+                    <div class="slds-notify slds-notify_alert slds-alert_warning slds-m-bottom_small" role="alert">
+                        <ul>
+                            <template for:each={warnings} for:item="warning">
+                                <li key={warning}>{warning}</li>
+                            </template>
+                        </ul>
+                    </div>
+                </template>
+
+                <ul class="rows">
+                    <template for:each={rows} for:item="row">
+                        <li key={row.fieldApiName} class={row.rowClass}>
+                            <div class="row-head">
+                                <lightning-input
+                                    type="checkbox"
+                                    label={row.label}
+                                    checked={row.include}
+                                    data-field={row.fieldApiName}
+                                    onchange={handleIncludeChange}
+                                >
+                                </lightning-input>
+                                <span class={row.badgeClass}>{row.badgeLabel}</span>
+                            </div>
+
+                            <div class="row-input">
+                                <template if:true={row.isDate}>
+                                    <lightning-input
+                                        type="date"
+                                        label={row.label}
+                                        variant="label-hidden"
+                                        value={row.value}
+                                        data-field={row.fieldApiName}
+                                        onchange={handleValueChange}
+                                    >
+                                    </lightning-input>
+                                </template>
+                                <template if:true={row.isCurrency}>
+                                    <lightning-input
+                                        type="number"
+                                        formatter="currency"
+                                        step="0.01"
+                                        label={row.label}
+                                        variant="label-hidden"
+                                        value={row.value}
+                                        data-field={row.fieldApiName}
+                                        onchange={handleValueChange}
+                                    >
+                                    </lightning-input>
+                                </template>
+                                <template if:true={row.isNumber}>
+                                    <lightning-input
+                                        type="number"
+                                        step="1"
+                                        label={row.label}
+                                        variant="label-hidden"
+                                        value={row.value}
+                                        data-field={row.fieldApiName}
+                                        onchange={handleValueChange}
+                                    >
+                                    </lightning-input>
+                                </template>
+                                <template if:true={row.isText}>
+                                    <lightning-input
+                                        label={row.label}
+                                        variant="label-hidden"
+                                        value={row.value}
+                                        data-field={row.fieldApiName}
+                                        onchange={handleValueChange}
+                                    >
+                                    </lightning-input>
+                                </template>
+                                <template if:true={row.isTextarea}>
+                                    <lightning-textarea
+                                        label={row.label}
+                                        variant="label-hidden"
+                                        value={row.value}
+                                        data-field={row.fieldApiName}
+                                        onchange={handleValueChange}
+                                        class="summary-box"
+                                    >
+                                    </lightning-textarea>
+                                </template>
+                                <template if:true={row.isPicklist}>
+                                    <lightning-combobox
+                                        label={row.label}
+                                        variant="label-hidden"
+                                        placeholder="Choose a value"
+                                        value={row.value}
+                                        options={row.options}
+                                        data-field={row.fieldApiName}
+                                        onchange={handleValueChange}
+                                    >
+                                    </lightning-combobox>
+                                </template>
+                                <template if:true={row.isMulti}>
+                                    <div class="chips">
+                                        <template for:each={row.chips} for:item="chip">
+                                            <button
+                                                key={chip.value}
+                                                class={chip.className}
+                                                data-field={row.fieldApiName}
+                                                data-value={chip.value}
+                                                onclick={handleChipClick}
+                                            >
+                                                {chip.label}
+                                            </button>
+                                        </template>
+                                    </div>
+                                </template>
+                                <template if:true={row.isLookup}>
+                                    <lightning-record-picker
+                                        label={row.label}
+                                        variant="label-hidden"
+                                        object-api-name="Account"
+                                        placeholder="Search accounts…"
+                                        value={row.value}
+                                        data-field={row.fieldApiName}
+                                        onchange={handleAgencyChange}
+                                    >
+                                    </lightning-record-picker>
+                                </template>
+                            </div>
+
+                            <div class="row-meta">
+                                <template if:true={row.hasEvidence}>
+                                    <p class="evidence">“{row.evidence}”</p>
+                                </template>
+                                <template if:true={row.note}>
+                                    <p class="note">{row.note}</p>
+                                </template>
+                                <p class="current">{row.currentDisplay}</p>
+                            </div>
+                        </li>
+                    </template>
+                </ul>
+
+                <div class="options slds-m-top_small">
+                    <template if:true={showAmountOption}>
+                        <lightning-input
+                            type="checkbox"
+                            label={amountOptionLabel}
+                            checked={updateAmount}
+                            onchange={handleUpdateAmountChange}
+                        >
+                        </lightning-input>
+                    </template>
+                    <template if:true={canAttach}>
+                        <lightning-input
+                            type="checkbox"
+                            label={attachLabel}
+                            checked={attachFile}
+                            onchange={handleAttachChange}
+                        >
+                        </lightning-input>
+                    </template>
+                </div>
+
+                <div class="actions slds-m-top_medium">
+                    <lightning-button label="Start over" onclick={handleStartOver}></lightning-button>
+                    <lightning-button
+                        variant="brand"
+                        label={applyLabel}
+                        onclick={handleApply}
+                        disabled={applyDisabled}
+                    >
+                    </lightning-button>
+                </div>
+            </template>
+        </div>
+    </lightning-card>
+</template>

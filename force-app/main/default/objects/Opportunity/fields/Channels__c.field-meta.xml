@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Channels__c</fullName>
+    <description>Audio and media channels included in the buy.</description>
+    <externalId>false</externalId>
+    <label>Channels</label>
+    <required>false</required>
+    <type>MultiselectPicklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value>
+                <fullName>Podcast</fullName>
+                <default>false</default>
+                <label>Podcast</label>
+            </value>
+            <value>
+                <fullName>Streaming Audio</fullName>
+                <default>false</default>
+                <label>Streaming Audio</label>
+            </value>
+            <value>
+                <fullName>Satellite Radio</fullName>
+                <default>false</default>
+                <label>Satellite Radio</label>
+            </value>
+            <value>
+                <fullName>Live Events</fullName>
+                <default>false</default>
+                <label>Live Events</label>
+            </value>
+            <value>
+                <fullName>Display and Video</fullName>
+                <default>false</default>
+                <label>Display and Video</label>
+            </value>
+        </valueSetDefinition>
+    </valueSet>
+    <visibleLines>4</visibleLines>
+</CustomField>
